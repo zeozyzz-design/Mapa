@@ -1,0 +1,968 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Mapa de Processo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<style>
+/*
+  Layout: prancheta digital — cabeçalho fixo com contagem, abas "Etapas" (formulário
+  de apontamento rápido + lista cronológica) e "Fluxo" (diagrama vertical gerado
+  automaticamente a partir da ordem registrada). Pensado para uso em pé, com uma mão,
+  no chão de fábrica.
+*/
+:root{
+  --bg:#F3F5F7;
+  --surface:#FFFFFF;
+  --surface-2:#E8EDF1;
+  --border:#D3DBE2;
+  --fg:#11202B;
+  --fg-muted:#5B6B76;
+  --accent:#0078B4;
+  --accent-deep:#0B3D5C;
+  --warn-bg:#FBEAE7;
+  --warn-border:#C94A34;
+  --warn-fg:#7A2A1C;
+  --font-display:'Archivo',sans-serif;
+  --font-body:'IBM Plex Sans',sans-serif;
+  --font-mono:'IBM Plex Mono',monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0A1118;
+    --surface:#111C26;
+    --surface-2:#192632;
+    --border:#28394A;
+    --fg:#E8EEF2;
+    --fg-muted:#92A5B2;
+    --accent:#45A9DE;
+    --accent-deep:#BFE2F5;
+    --warn-bg:#331711;
+    --warn-border:#DE6B4F;
+    --warn-fg:#F2B29C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0A1118;
+  --surface:#111C26;
+  --surface-2:#192632;
+  --border:#28394A;
+  --fg:#E8EEF2;
+  --fg-muted:#92A5B2;
+  --accent:#45A9DE;
+  --accent-deep:#BFE2F5;
+  --warn-bg:#331711;
+  --warn-border:#DE6B4F;
+  --warn-fg:#F2B29C;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg);
+  color:var(--fg);
+  font-family:var(--font-body);
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+  padding-bottom:40px;
+}
+h1,h2,h3{font-family:var(--font-display);text-wrap:balance;margin:0;}
+p{margin:0;}
+button{font-family:inherit;}
+input,textarea{font-family:var(--font-body);}
+
+/* ---------- header ---------- */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0 0 auto;
+  height:env(safe-area-inset-top,0px);
+  z-index:20;
+  background:var(--accent-deep);
+}
+.header{
+  position:sticky;
+  top:env(safe-area-inset-top,0px);
+  z-index:15;
+  margin:0 -16px;
+  padding:14px max(16px, env(safe-area-inset-left,0px)) 12px max(16px, env(safe-area-inset-right,0px));
+  background:var(--accent-deep);
+  color:#fff;
+}
+.eyebrow{
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:#BFE2F5;
+  margin:0 0 6px;
+}
+.title-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+.title-row h1{font-size:20px;font-weight:800;color:#fff;}
+#nomeMapa{
+  flex:1 1 180px;
+  min-width:0;
+  background:transparent;
+  border:none;
+  border-bottom:1px dashed rgba(255,255,255,.4);
+  color:#fff;
+  font-family:var(--font-body);
+  font-size:14px;
+  font-weight:500;
+  padding:4px 2px;
+}
+#nomeMapa::placeholder{color:rgba(255,255,255,.55);}
+#nomeMapa:focus{outline:none;border-bottom-color:#fff;}
+.stat-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.stat-chip{
+  font-family:var(--font-mono);
+  font-size:12px;
+  background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.22);
+  color:#fff;
+  padding:4px 9px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+.stat-chip b{font-weight:600;font-variant-numeric:tabular-nums;}
+.stat-chip.warn{background:rgba(201,74,52,.35);border-color:rgba(222,107,79,.5);}
+
+/* ---------- tabs ---------- */
+.tabbar{
+  position:sticky;
+  top:calc(env(safe-area-inset-top,0px) + 76px);
+  z-index:14;
+  display:flex;
+  gap:0;
+  margin:0 -16px 16px;
+  padding:0 max(16px, env(safe-area-inset-left,0px)) 0 max(16px, env(safe-area-inset-right,0px));
+  background:var(--bg);
+  border-bottom:1px solid var(--border);
+}
+.tab{
+  appearance:none;
+  background:none;
+  border:none;
+  border-bottom:2px solid transparent;
+  color:var(--fg-muted);
+  font-size:14px;
+  font-weight:600;
+  padding:12px 4px;
+  margin-right:22px;
+  cursor:pointer;
+}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+main{max-width:640px;margin:0 auto;}
+
+/* ---------- cards / form ---------- */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:16px;
+}
+.card + .card{margin-top:12px;}
+.form-card h2{font-size:15px;margin-bottom:2px;}
+.form-card .sub{color:var(--fg-muted);font-size:12.5px;margin-bottom:14px;}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;}
+.field label{font-size:12.5px;font-weight:600;color:var(--fg-muted);}
+.field input[type=text],.field textarea{
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:9px;
+  padding:10px 11px;
+  font-size:15px;
+  color:var(--fg);
+  width:100%;
+  min-width:0;
+}
+.field textarea{resize:vertical;min-height:52px;line-height:1.4;}
+.field input:focus,.field textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent;}
+.row-2{display:flex;gap:10px;}
+.row-2 .field{flex:1;min-width:0;}
+.toggle-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:9px;
+  padding:10px 12px;
+  margin-bottom:12px;
+}
+.toggle-row input{width:19px;height:19px;accent-color:var(--warn-border);flex:none;}
+.toggle-row label{font-size:14px;font-weight:600;flex:1;}
+#campoTipoGargalo{margin-bottom:12px;}
+#campoTipoGargalo[hidden]{display:none;}
+.btn{
+  appearance:none;
+  border:none;
+  border-radius:10px;
+  font-weight:700;
+  font-size:14.5px;
+  padding:13px 18px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+}
+.btn:focus-visible{outline:2px solid var(--accent-deep);outline-offset:2px;}
+.btn-primary{background:var(--accent);color:#fff;width:100%;}
+.btn-primary:active{background:var(--accent-deep);}
+.btn-ghost{background:var(--surface-2);color:var(--fg);border:1px solid var(--border);}
+.btn-secondary{background:var(--surface-2);color:var(--fg);border:1px solid var(--border);width:100%;margin-top:8px;}
+.form-actions{display:flex;gap:8px;}
+.form-actions .btn-primary{flex:2;}
+.form-actions .btn-ghost{flex:1;}
+
+/* ---------- list ---------- */
+.list-head{display:flex;align-items:baseline;justify-content:space-between;margin:20px 0 10px;}
+.list-head h2{font-size:14px;color:var(--fg-muted);text-transform:uppercase;letter-spacing:.04em;}
+.empty{
+  border:1px dashed var(--border);
+  border-radius:14px;
+  padding:28px 18px;
+  text-align:center;
+  color:var(--fg-muted);
+  font-size:14px;
+}
+.empty b{display:block;color:var(--fg);font-size:15px;margin-bottom:4px;}
+.step-card{position:relative;padding-left:52px;}
+.step-card.gargalo{background:var(--warn-bg);border-color:var(--warn-border);}
+.step-num{
+  position:absolute;
+  left:14px;top:16px;
+  width:28px;height:28px;
+  border-radius:50%;
+  background:var(--accent-deep);
+  color:#fff;
+  font-family:var(--font-mono);
+  font-size:12px;
+  font-weight:500;
+  display:flex;align-items:center;justify-content:center;
+}
+.step-card.gargalo .step-num{background:var(--warn-border);}
+.step-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;}
+.step-setor{font-family:var(--font-mono);font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--accent);}
+.step-card.gargalo .step-setor{color:var(--warn-fg);}
+.step-time{font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);white-space:nowrap;}
+.step-nome{font-size:16px;font-weight:700;margin-top:2px;}
+.step-desc{font-size:13.5px;color:var(--fg-muted);margin-top:4px;line-height:1.45;}
+.step-obs{font-size:13px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);line-height:1.45;}
+.step-obs b{font-weight:600;}
+.step-meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--fg-muted);}
+.badge-gargalo{
+  display:inline-flex;align-items:center;gap:4px;
+  background:var(--warn-border);color:#fff;
+  font-size:10.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+  padding:3px 8px;border-radius:999px;margin-top:8px;
+}
+.step-controls{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;}
+.icon-btn{
+  appearance:none;border:1px solid var(--border);background:var(--surface);
+  color:var(--fg-muted);border-radius:8px;
+  width:36px;height:36px;display:flex;align-items:center;justify-content:center;
+  font-size:15px;cursor:pointer;
+}
+.icon-btn:active{background:var(--surface-2);}
+.text-btn{
+  appearance:none;border:1px solid var(--border);background:var(--surface);
+  color:var(--fg);border-radius:8px;padding:0 13px;height:36px;
+  font-size:13px;font-weight:600;cursor:pointer;
+}
+.text-btn.danger{color:var(--warn-fg);border-color:var(--warn-border);}
+.text-btn.danger.confirming{background:var(--warn-border);color:#fff;}
+
+/* ---------- flow diagram ---------- */
+.flow-wrap{display:flex;flex-direction:column;align-items:center;padding:8px 0 4px;}
+.flow-box{
+  width:100%;
+  max-width:420px;
+  background:var(--surface);
+  border:1.5px solid var(--border);
+  border-left:5px solid var(--accent);
+  border-radius:11px;
+  padding:12px 14px;
+}
+.flow-box.gargalo{border-left-color:var(--warn-border);background:var(--warn-bg);}
+.flow-box-top{display:flex;align-items:center;gap:8px;}
+.flow-index{
+  font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);
+  background:var(--surface-2);border-radius:5px;padding:1px 6px;
+}
+.flow-setor{font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--accent);}
+.flow-box.gargalo .flow-setor{color:var(--warn-fg);}
+.flow-nome{font-weight:700;font-size:14.5px;margin-top:4px;}
+.flow-desc{font-size:12.5px;color:var(--fg-muted);margin-top:3px;line-height:1.4;}
+.flow-warn-tag{display:flex;align-items:center;gap:5px;margin-top:7px;font-size:11px;font-weight:700;color:var(--warn-fg);text-transform:uppercase;letter-spacing:.02em;}
+.flow-connector{display:flex;flex-direction:column;align-items:center;height:28px;}
+.flow-connector .line{width:2px;flex:1;background:var(--border);}
+.flow-connector .arrow{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid var(--border);}
+.legend{display:flex;gap:16px;justify-content:center;margin-top:18px;flex-wrap:wrap;}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-muted);}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+.excel-status{font-size:12.5px;color:var(--fg-muted);margin-top:8px;min-height:16px;}
+.excel-status.ok{color:var(--accent);}
+.excel-status.error{color:var(--warn-fg);}
+.export-row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;}
+.export-row .btn-ghost{flex:1 1 140px;}
+footer-note{display:block;text-align:center;color:var(--fg-muted);font-size:11.5px;margin-top:22px;}
+
+[hidden]{display:none!important;}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);}
+</style>
+
+<div class="header">
+  <p class="eyebrow">ERV Consultoria · Diagnóstico de processo</p>
+  <div class="title-row">
+    <h1>Mapa de Processo</h1>
+    <input id="nomeMapa" type="text" placeholder="Nome do setor / linha mapeada" maxlength="80">
+  </div>
+  <div class="stat-row" id="statRow"></div>
+</div>
+
+<div class="tabbar" role="tablist">
+  <button class="tab" id="tabBtnEtapas" role="tab" aria-selected="true" aria-controls="painelEtapas" data-action="tab" data-tab="etapas">Etapas</button>
+  <button class="tab" id="tabBtnFluxo" role="tab" aria-selected="false" aria-controls="painelFluxo" data-action="tab" data-tab="fluxo">Fluxo</button>
+</div>
+
+<main>
+  <section id="painelEtapas" role="tabpanel" aria-labelledby="tabBtnEtapas">
+    <div class="card form-card">
+      <h2 id="formTitulo">Registrar etapa</h2>
+      <p class="sub">Preencha no local, na ordem em que a etapa acontece.</p>
+      <form id="formEtapa">
+        <div class="row-2">
+          <div class="field">
+            <label for="fSetor">Setor / área</label>
+            <input type="text" id="fSetor" list="setoresSugestoes" placeholder="Ex: Sinterização" autocomplete="off">
+            <datalist id="setoresSugestoes">
+              <option value="Recebimento de Matéria-Prima">
+              <option value="Corte">
+              <option value="Prensagem">
+              <option value="Sinterização">
+              <option value="Usinagem">
+              <option value="Tratamento Térmico">
+              <option value="Montagem">
+              <option value="Controle de Qualidade">
+              <option value="Embalagem">
+              <option value="Expedição">
+            </datalist>
+          </div>
+          <div class="field">
+            <label for="fTempo">Tempo estimado</label>
+            <input type="text" id="fTempo" placeholder="Ex: 15 min" autocomplete="off">
+          </div>
+        </div>
+        <div class="field">
+          <label for="fEtapa">Etapa / atividade</label>
+          <input type="text" id="fEtapa" placeholder="Ex: Prensagem da lona no suporte" autocomplete="off">
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label for="fPessoas">Qtd. de pessoas na etapa</label>
+            <input type="text" inputmode="numeric" id="fPessoas" placeholder="Ex: 2" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="fQuantidade">Quantidade (peças/estoque)</label>
+            <input type="text" inputmode="numeric" id="fQuantidade" placeholder="Ex: 240" autocomplete="off">
+          </div>
+        </div>
+        <div class="field">
+          <label for="fDescricao">Como o processo acontece</label>
+          <textarea id="fDescricao" placeholder="Descreva o que é feito, com o quê e por quem"></textarea>
+        </div>
+        <div class="field">
+          <label for="fObs">Observações</label>
+          <textarea id="fObs" placeholder="Pontos soltos, riscos, o que chamou atenção"></textarea>
+        </div>
+        <div class="field">
+          <label for="fResponsavel">Responsável / operador (opcional)</label>
+          <input type="text" id="fResponsavel" placeholder="Nome ou função" autocomplete="off">
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="fGargalo">
+          <label for="fGargalo">Esta etapa é um gargalo</label>
+        </div>
+        <div class="field" id="campoTipoGargalo" hidden>
+          <label for="fTipoGargalo">Tipo de gargalo</label>
+          <input type="text" id="fTipoGargalo" list="gargalosSugestoes" placeholder="Ex: falta de apontamento" autocomplete="off">
+          <datalist id="gargalosSugestoes">
+            <option value="Capacidade da máquina">
+            <option value="Falta de apontamento">
+            <option value="Falta de matéria-prima">
+            <option value="Mão de obra insuficiente">
+            <option value="Retrabalho / qualidade">
+            <option value="Processo não definido">
+            <option value="Manutenção / quebra de equipamento">
+            <option value="Espera entre etapas">
+          </datalist>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btnSubmit">Adicionar etapa</button>
+          <button type="button" class="btn btn-ghost" id="btnCancelarEdicao" hidden>Cancelar</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="list-head">
+      <h2>Etapas registradas</h2>
+    </div>
+    <div id="listaEtapas"></div>
+  </section>
+
+  <section id="painelFluxo" role="tabpanel" aria-labelledby="tabBtnFluxo" hidden>
+    <div id="fluxoContainer"></div>
+  </section>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var STORAGE_KEY = "mapaProcesso.v1";
+  var state = { nome:"", entries:[] };
+  var editingId = null;
+  var deleteConfirmId = null;
+
+  function loadState(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        var parsed = JSON.parse(raw);
+        if(parsed && Array.isArray(parsed.entries)){ state = parsed; }
+      }
+    }catch(e){ /* sem storage disponível: segue com estado vazio */ }
+  }
+  function saveState(){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){ /* ignora */ }
+  }
+
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function nowLabel(){
+    var d = new Date();
+    var hh = String(d.getHours()).padStart(2,"0");
+    var mm = String(d.getMinutes()).padStart(2,"0");
+    return hh+":"+mm;
+  }
+  function uid(){ return "e"+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+  // ---------- rendering ----------
+  function renderAll(){
+    document.getElementById("nomeMapa").value = state.nome || "";
+    renderStats();
+    renderList();
+    renderFlow();
+  }
+
+  function renderStats(){
+    var total = state.entries.length;
+    var gargalos = state.entries.filter(function(e){ return e.gargalo; }).length;
+    var html = '<span class="stat-chip">Etapas <b>'+total+'</b></span>';
+    html += '<span class="stat-chip'+(gargalos>0?' warn':'')+'">Gargalos <b>'+gargalos+'</b></span>';
+    document.getElementById("statRow").innerHTML = html;
+  }
+
+  function renderList(){
+    var wrap = document.getElementById("listaEtapas");
+    if(state.entries.length===0){
+      wrap.innerHTML = '<div class="empty"><b>Nenhuma etapa registrada ainda</b>Adicione a primeira etapa acima, na ordem em que ela acontece no chão de fábrica.</div>';
+      return;
+    }
+    var html = "";
+    state.entries.forEach(function(e, i){
+      var isConfirming = deleteConfirmId === e.id;
+      html += '<div class="card step-card'+(e.gargalo?' gargalo':'')+'">';
+      html += '<div class="step-num">'+(i+1)+'</div>';
+      html += '<div class="step-top">';
+      html += '<div><p class="step-setor">'+esc(e.setor||"Setor não informado")+'</p>';
+      html += '<p class="step-nome">'+esc(e.nome)+'</p></div>';
+      html += '<span class="step-time">'+esc(e.hora||"")+'</span>';
+      html += '</div>';
+      if(e.descricao){ html += '<p class="step-desc">'+esc(e.descricao)+'</p>'; }
+      if(e.obs){ html += '<p class="step-obs"><b>Obs:</b> '+esc(e.obs)+'</p>'; }
+      var metaBits = [];
+      if(e.pessoas) metaBits.push("Pessoas: "+esc(e.pessoas));
+      if(e.quantidade) metaBits.push("Qtd: "+esc(e.quantidade));
+      if(e.tempo) metaBits.push("Tempo: "+esc(e.tempo));
+      if(e.responsavel) metaBits.push(esc(e.responsavel));
+      if(metaBits.length){ html += '<div class="step-meta">'+metaBits.map(function(m){return '<span>'+m+'</span>';}).join("")+'</div>'; }
+      if(e.gargalo){ html += '<span class="badge-gargalo">⚠ Gargalo'+(e.tipoGargalo? ' · '+esc(e.tipoGargalo):'')+'</span>'; }
+      html += '<div class="step-controls">';
+      html += '<button class="icon-btn" data-action="up" data-id="'+e.id+'" '+(i===0?'disabled':'')+' aria-label="Mover para cima">↑</button>';
+      html += '<button class="icon-btn" data-action="down" data-id="'+e.id+'" '+(i===state.entries.length-1?'disabled':'')+' aria-label="Mover para baixo">↓</button>';
+      html += '<button class="text-btn" data-action="editar" data-id="'+e.id+'">Editar</button>';
+      html += '<button class="text-btn danger'+(isConfirming?' confirming':'')+'" data-action="excluir" data-id="'+e.id+'">'+(isConfirming?'Confirmar exclusão':'Excluir')+'</button>';
+      html += '</div></div>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  function renderFlow(){
+    var wrap = document.getElementById("fluxoContainer");
+    if(state.entries.length===0){
+      wrap.innerHTML = '<div class="empty" style="margin-top:12px;"><b>O fluxo aparece aqui</b>Registre etapas na aba "Etapas" e o diagrama é montado automaticamente, na ordem registrada.</div>';
+      return;
+    }
+    var html = '<div class="flow-wrap">';
+    state.entries.forEach(function(e, i){
+      html += '<div class="flow-box'+(e.gargalo?' gargalo':'')+'">';
+      html += '<div class="flow-box-top"><span class="flow-index">'+(i+1)+'</span><span class="flow-setor">'+esc(e.setor||"—")+'</span></div>';
+      html += '<p class="flow-nome">'+esc(e.nome)+'</p>';
+      if(e.descricao){ html += '<p class="flow-desc">'+esc(e.descricao)+'</p>'; }
+      var flowMeta = [];
+      if(e.pessoas) flowMeta.push("Pessoas: "+esc(e.pessoas));
+      if(e.quantidade) flowMeta.push("Qtd: "+esc(e.quantidade));
+      if(flowMeta.length){ html += '<p class="flow-desc">'+flowMeta.join(" · ")+'</p>'; }
+      if(e.gargalo){ html += '<div class="flow-warn-tag">⚠ Gargalo'+(e.tipoGargalo? ' · '+esc(e.tipoGargalo):'')+'</div>'; }
+      html += '</div>';
+      if(i < state.entries.length-1){
+        html += '<div class="flow-connector"><div class="line"></div><div class="arrow"></div></div>';
+      }
+    });
+    html += '</div>';
+    html += '<div class="legend">';
+    html += '<div class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>Etapa do processo</div>';
+    html += '<div class="legend-item"><span class="legend-swatch" style="background:var(--warn-border)"></span>Gargalo identificado</div>';
+    html += '</div>';
+    html += '<button class="btn btn-primary" data-action="excel" style="margin-top:18px;">Gerar Excel (.xlsx)</button>';
+    html += '<p class="excel-status" id="excelStatus"></p>';
+    html += '<div class="export-row">';
+    html += '<button class="btn btn-ghost" data-action="copiar">Copiar resumo</button>';
+    html += '<button class="btn btn-ghost" data-action="csv">Baixar CSV</button>';
+    html += '</div>';
+    wrap.innerHTML = html;
+  }
+
+  // ---------- form ----------
+  var form = document.getElementById("formEtapa");
+  var fGargalo = document.getElementById("fGargalo");
+  var campoTipoGargalo = document.getElementById("campoTipoGargalo");
+
+  fGargalo.addEventListener("change", function(){
+    campoTipoGargalo.hidden = !fGargalo.checked;
+  });
+
+  function clearForm(){
+    form.reset();
+    campoTipoGargalo.hidden = true;
+    editingId = null;
+    document.getElementById("formTitulo").textContent = "Registrar etapa";
+    document.getElementById("btnSubmit").textContent = "Adicionar etapa";
+    document.getElementById("btnCancelarEdicao").hidden = true;
+  }
+
+  function fillFormFromEntry(e){
+    document.getElementById("fSetor").value = e.setor||"";
+    document.getElementById("fTempo").value = e.tempo||"";
+    document.getElementById("fEtapa").value = e.nome||"";
+    document.getElementById("fPessoas").value = e.pessoas||"";
+    document.getElementById("fQuantidade").value = e.quantidade||"";
+    document.getElementById("fDescricao").value = e.descricao||"";
+    document.getElementById("fObs").value = e.obs||"";
+    document.getElementById("fResponsavel").value = e.responsavel||"";
+    fGargalo.checked = !!e.gargalo;
+    campoTipoGargalo.hidden = !e.gargalo;
+    document.getElementById("fTipoGargalo").value = e.tipoGargalo||"";
+  }
+
+  form.addEventListener("submit", function(ev){
+    ev.preventDefault();
+    var nome = document.getElementById("fEtapa").value.trim();
+    if(!nome){ document.getElementById("fEtapa").focus(); return; }
+    var entry = {
+      id: editingId || uid(),
+      setor: document.getElementById("fSetor").value.trim(),
+      nome: nome,
+      pessoas: document.getElementById("fPessoas").value.trim(),
+      quantidade: document.getElementById("fQuantidade").value.trim(),
+      descricao: document.getElementById("fDescricao").value.trim(),
+      obs: document.getElementById("fObs").value.trim(),
+      responsavel: document.getElementById("fResponsavel").value.trim(),
+      tempo: document.getElementById("fTempo").value.trim(),
+      gargalo: fGargalo.checked,
+      tipoGargalo: fGargalo.checked ? document.getElementById("fTipoGargalo").value.trim() : "",
+      hora: editingId ? (state.entries.find(function(x){return x.id===editingId;})||{}).hora || nowLabel() : nowLabel()
+    };
+    if(editingId){
+      var idx = state.entries.findIndex(function(x){ return x.id===editingId; });
+      if(idx>-1){ state.entries[idx] = entry; }
+    } else {
+      state.entries.push(entry);
+    }
+    saveState();
+    clearForm();
+    renderAll();
+  });
+
+  document.getElementById("btnCancelarEdicao").addEventListener("click", clearForm);
+
+  document.getElementById("nomeMapa").addEventListener("change", function(){
+    state.nome = this.value.trim();
+    saveState();
+  });
+
+  // ---------- delegated actions ----------
+  document.body.addEventListener("click", function(ev){
+    var t = ev.target.closest("[data-action]");
+    if(!t) return;
+    var action = t.getAttribute("data-action");
+    var id = t.getAttribute("data-id");
+
+    if(action === "tab"){
+      var tab = t.getAttribute("data-tab");
+      document.getElementById("tabBtnEtapas").setAttribute("aria-selected", tab==="etapas");
+      document.getElementById("tabBtnFluxo").setAttribute("aria-selected", tab==="fluxo");
+      document.getElementById("painelEtapas").hidden = tab!=="etapas";
+      document.getElementById("painelFluxo").hidden = tab!=="fluxo";
+      if(tab==="fluxo"){ renderFlow(); }
+      return;
+    }
+
+    if(action === "up" || action === "down"){
+      var idx = state.entries.findIndex(function(x){ return x.id===id; });
+      var swapWith = action==="up" ? idx-1 : idx+1;
+      if(idx>-1 && swapWith>=0 && swapWith<state.entries.length){
+        var tmp = state.entries[idx];
+        state.entries[idx] = state.entries[swapWith];
+        state.entries[swapWith] = tmp;
+        saveState();
+        renderAll();
+      }
+      return;
+    }
+
+    if(action === "editar"){
+      var entry = state.entries.find(function(x){ return x.id===id; });
+      if(entry){
+        editingId = id;
+        fillFormFromEntry(entry);
+        document.getElementById("formTitulo").textContent = "Editar etapa";
+        document.getElementById("btnSubmit").textContent = "Salvar alterações";
+        document.getElementById("btnCancelarEdicao").hidden = false;
+        document.getElementById("tabBtnEtapas").click();
+        document.getElementById("fEtapa").scrollIntoView({behavior:"smooth", block:"center"});
+      }
+      return;
+    }
+
+    if(action === "excluir"){
+      if(deleteConfirmId === id){
+        state.entries = state.entries.filter(function(x){ return x.id!==id; });
+        deleteConfirmId = null;
+        saveState();
+        renderAll();
+      } else {
+        deleteConfirmId = id;
+        renderList();
+      }
+      return;
+    }
+
+    if(action === "copiar"){
+      var texto = buildResumoTexto();
+      copyToClipboard(texto, t);
+      return;
+    }
+
+    if(action === "csv"){
+      baixarCSV();
+      return;
+    }
+
+    if(action === "excel"){
+      generateExcel(t);
+      return;
+    }
+  });
+
+  // click fora de um botão "excluir" cancela a confirmação pendente
+  document.body.addEventListener("click", function(ev){
+    if(deleteConfirmId && !ev.target.closest('[data-action="excluir"]')){
+      deleteConfirmId = null;
+      renderList();
+    }
+  }, true);
+
+  document.getElementById("tabBtnEtapas").addEventListener("click", function(){});
+
+  // ---------- export ----------
+  function buildResumoTexto(){
+    var linhas = [];
+    linhas.push((state.nome || "Mapa de processo") + " — registrado em " + new Date().toLocaleDateString("pt-BR"));
+    linhas.push("");
+    state.entries.forEach(function(e,i){
+      linhas.push((i+1)+". ["+(e.hora||"")+"] "+(e.setor?e.setor+" — ":"")+e.nome + (e.gargalo?"  (GARGALO"+(e.tipoGargalo?": "+e.tipoGargalo:"")+")":""));
+      if(e.descricao) linhas.push("   Processo: "+e.descricao);
+      if(e.obs) linhas.push("   Obs: "+e.obs);
+      if(e.pessoas) linhas.push("   Pessoas na etapa: "+e.pessoas);
+      if(e.quantidade) linhas.push("   Quantidade (peças/estoque): "+e.quantidade);
+      if(e.tempo) linhas.push("   Tempo estimado: "+e.tempo);
+      if(e.responsavel) linhas.push("   Responsável: "+e.responsavel);
+      linhas.push("");
+    });
+    return linhas.join("\n");
+  }
+
+  function copyToClipboard(texto, btn){
+    var original = btn.textContent;
+    function marcarCopiado(){
+      btn.textContent = "Copiado!";
+      setTimeout(function(){ btn.textContent = original; }, 1600);
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(texto).then(marcarCopiado, function(){ fallbackCopy(texto, marcarCopiado); });
+    } else {
+      fallbackCopy(texto, marcarCopiado);
+    }
+  }
+  function fallbackCopy(texto, done){
+    try{
+      var ta = document.createElement("textarea");
+      ta.value = texto;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      done();
+    }catch(e){ /* sem clipboard disponível */ }
+  }
+
+  function csvEscape(v){
+    v = String(v==null?"":v);
+    if(/[",\n]/.test(v)){ v = '"'+v.replace(/"/g,'""')+'"'; }
+    return v;
+  }
+  function baixarCSV(){
+    var header = ["#","Hora","Setor","Etapa","Descricao","Observacoes","QtdPessoas","Quantidade","Tempo","Responsavel","Gargalo","TipoGargalo"];
+    var rows = [header.join(",")];
+    state.entries.forEach(function(e,i){
+      rows.push([i+1, e.hora, e.setor, e.nome, e.descricao, e.obs, e.pessoas, e.quantidade, e.tempo, e.responsavel, e.gargalo?"Sim":"Nao", e.tipoGargalo].map(csvEscape).join(","));
+    });
+    var csv = rows.join("\n");
+    tryDownload(csv);
+  }
+
+  function tryDownload(csv){
+    if(window.claude && window.claude.use){
+      window.claude.use("downloads").then(function(downloads){
+        if(!downloads){ manualDownloadFallback(csv); return; }
+        var blob = new Blob([csv], {type:"text/csv"});
+        downloads.save({ filename: (state.nome?state.nome.replace(/[^a-z0-9]+/gi,"-"):"mapa-processo")+".csv", data: blob }).catch(function(){});
+      }).catch(function(){ manualDownloadFallback(csv); });
+    } else {
+      manualDownloadFallback(csv);
+    }
+  }
+  function manualDownloadFallback(csv){
+    copyToClipboard(csv, document.querySelector('[data-action="csv"]') || {textContent:""});
+  }
+
+  // ---------- Excel (.xlsx) ----------
+  var THIN_BORDER = {
+    top:{style:"thin", color:{argb:"FFD3DBE2"}},
+    left:{style:"thin", color:{argb:"FFD3DBE2"}},
+    bottom:{style:"thin", color:{argb:"FFD3DBE2"}},
+    right:{style:"thin", color:{argb:"FFD3DBE2"}}
+  };
+  function titleBand(ws, lastCol, text){
+    ws.mergeCells(1,1,1,lastCol);
+    var c = ws.getCell(1,1);
+    c.value = text;
+    c.font = {name:"Calibri", size:13, bold:true, color:{argb:"FFFFFFFF"}};
+    c.fill = {type:"pattern", pattern:"solid", fgColor:{argb:"FF0B3D5C"}};
+    c.alignment = {vertical:"middle", horizontal:"left", indent:1};
+    ws.getRow(1).height = 24;
+  }
+  function subtitleBand(ws, lastCol, text){
+    ws.mergeCells(2,1,2,lastCol);
+    var c = ws.getCell(2,1);
+    c.value = text;
+    c.font = {name:"Calibri", size:10, italic:true, color:{argb:"FF0B3D5C"}};
+    c.alignment = {vertical:"middle", horizontal:"left", indent:1, wrapText:true};
+    ws.getRow(2).height = 15;
+  }
+
+  function buildRegistroSheet(ws, lastDataRow){
+    ws.columns = [
+      {width:5},{width:9},{width:20},{width:26},{width:32},{width:30},
+      {width:12},{width:14},{width:11},{width:12},{width:22},{width:16}
+    ];
+    titleBand(ws, 12, "ERV CONSULTORIA · MAPA DE PROCESSO — REGISTRO DE ETAPAS");
+    subtitleBand(ws, 12, (state.nome?state.nome+" — ":"")+"Gerado em "+new Date().toLocaleDateString("pt-BR")+" · "+state.entries.length+" etapa(s) registrada(s)");
+
+    var headers = ["Nº","Hora","Setor","Etapa / Atividade","Descrição do Processo","Observações",
+      "Qtd. Pessoas\nna Etapa","Quantidade\n(peças/estoque)","Tempo\nEstimado","Gargalo\n(Sim/Não)","Tipo de Gargalo","Responsável"];
+    var headerRow = ws.getRow(4);
+    headers.forEach(function(h, i){
+      var c = headerRow.getCell(i+1);
+      c.value = h;
+      c.font = {name:"Calibri", size:10, bold:true, color:{argb:"FFFFFFFF"}};
+      c.fill = {type:"pattern", pattern:"solid", fgColor:{argb:"FF0078B4"}};
+      c.alignment = {vertical:"middle", horizontal:"center", wrapText:true};
+      c.border = THIN_BORDER;
+    });
+    headerRow.height = 28;
+
+    state.entries.forEach(function(e, i){
+      var r = 5+i;
+      var row = ws.getRow(r);
+      var vals = [i+1, e.hora, e.setor, e.nome, e.descricao, e.obs,
+        e.pessoas?Number(e.pessoas):null, e.quantidade?Number(e.quantidade):null,
+        e.tempo, e.gargalo?"Sim":"Não", e.tipoGargalo, e.responsavel];
+      vals.forEach(function(v, ci){
+        var cell = row.getCell(ci+1);
+        cell.value = v;
+        cell.border = THIN_BORDER;
+        cell.font = {name:"Calibri", size:10};
+        var col = ci+1;
+        if(col===4 || col===5 || col===6 || col===11){
+          cell.alignment = {vertical:"top", horizontal:"left", wrapText:true};
+        } else if(col===3 || col===12){
+          cell.alignment = {vertical:"top", horizontal:"left", wrapText:true};
+        } else {
+          cell.alignment = {vertical:"top", horizontal:"center"};
+        }
+        if((col===7 || col===8) && v!=null){ cell.numFmt = "0"; }
+      });
+      if(e.gargalo){
+        row.getCell(10).font = {name:"Calibri", size:10, bold:true, color:{argb:"FFC94A34"}};
+      }
+      row.height = 30;
+    });
+
+    ws.views = [{state:"frozen", ySplit:4}];
+    ws.views[0].showGridLines = false;
+  }
+
+  function buildResumoSheet(ws, lastDataRow){
+    ws.columns = [{width:26},{width:17},{width:16},{width:20},{width:17}];
+    titleBand(ws, 5, "ERV CONSULTORIA · RESUMO POR SETOR");
+    subtitleBand(ws, 5, "Calculado automaticamente a partir da aba \"Registro de Etapas\".");
+
+    var headers = ["Setor","Qtd. Etapas\nRegistradas","Qtd. Pessoas\nAlocadas","Quantidade Total\n(peças/estoque)","Qtd. Gargalos\nIdentificados"];
+    var headerRow = ws.getRow(4);
+    headers.forEach(function(h, i){
+      var c = headerRow.getCell(i+1);
+      c.value = h;
+      c.font = {name:"Calibri", size:10, bold:true, color:{argb:"FFFFFFFF"}};
+      c.fill = {type:"pattern", pattern:"solid", fgColor:{argb:"FF0078B4"}};
+      c.alignment = {vertical:"middle", horizontal:"center", wrapText:true};
+      c.border = THIN_BORDER;
+    });
+    headerRow.height = 28;
+
+    var setoresList = [];
+    state.entries.forEach(function(e){
+      var s = (e.setor && e.setor.trim()) ? e.setor.trim() : "Não informado";
+      if(setoresList.indexOf(s)===-1) setoresList.push(s);
+    });
+
+    var firstRow = 5;
+    setoresList.forEach(function(setor, i){
+      var r = firstRow+i;
+      var row = ws.getRow(r);
+      var crit = setor==="Não informado" ? '""' : '"'+setor.replace(/"/g,'""')+'"';
+      row.getCell(1).value = setor;
+      row.getCell(2).value = {formula: "COUNTIF('Registro de Etapas'!$C$5:$C$"+lastDataRow+","+crit+")"};
+      row.getCell(3).value = {formula: "SUMIF('Registro de Etapas'!$C$5:$C$"+lastDataRow+","+crit+",'Registro de Etapas'!$G$5:$G$"+lastDataRow+")"};
+      row.getCell(4).value = {formula: "SUMIF('Registro de Etapas'!$C$5:$C$"+lastDataRow+","+crit+",'Registro de Etapas'!$H$5:$H$"+lastDataRow+")"};
+      row.getCell(5).value = {formula: "COUNTIFS('Registro de Etapas'!$C$5:$C$"+lastDataRow+","+crit+",'Registro de Etapas'!$J$5:$J$"+lastDataRow+",\"Sim\")"};
+      for(var col=1; col<=5; col++){
+        var cell = row.getCell(col);
+        cell.border = THIN_BORDER;
+        cell.font = {name:"Calibri", size:10};
+        cell.alignment = col===1 ? {vertical:"middle", horizontal:"left"} : {vertical:"middle", horizontal:"center"};
+        if(col>1){ cell.numFmt = "0"; }
+      }
+    });
+
+    var lastRow = firstRow+setoresList.length-1;
+    var totalRow = lastRow+1;
+    var tr = ws.getRow(totalRow);
+    tr.getCell(1).value = "Total";
+    tr.getCell(1).font = {name:"Calibri", size:10, bold:true, color:{argb:"FF0B3D5C"}};
+    ["B","C","D","E"].forEach(function(letter, i){
+      var cell = tr.getCell(i+2);
+      cell.value = {formula: "SUM("+letter+firstRow+":"+letter+lastRow+")"};
+      cell.font = {name:"Calibri", size:10, bold:true, color:{argb:"FF0B3D5C"}};
+      cell.numFmt = "0";
+      cell.alignment = {vertical:"middle", horizontal:"center"};
+    });
+    for(var c2=1; c2<=5; c2++){
+      tr.getCell(c2).fill = {type:"pattern", pattern:"solid", fgColor:{argb:"FFE8EDF1"}};
+      tr.getCell(c2).border = THIN_BORDER;
+    }
+
+    ws.views = [{state:"frozen", ySplit:4}];
+    ws.views[0].showGridLines = false;
+  }
+
+  async function generateExcel(btn){
+    var statusEl = document.getElementById("excelStatus");
+    if(state.entries.length===0){
+      if(statusEl){ statusEl.textContent = "Adicione etapas antes de gerar o Excel."; statusEl.className = "excel-status error"; }
+      return;
+    }
+    if(typeof ExcelJS === "undefined"){
+      if(statusEl){ statusEl.textContent = "Não foi possível carregar o gerador de Excel. Tente novamente."; statusEl.className = "excel-status error"; }
+      return;
+    }
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Gerando...";
+    if(statusEl){ statusEl.textContent = ""; statusEl.className = "excel-status"; }
+    try{
+      var lastDataRow = 4+state.entries.length;
+      var wb = new ExcelJS.Workbook();
+      wb.creator = "ERV Consultoria";
+      wb.created = new Date();
+      var ws1 = wb.addWorksheet("Registro de Etapas");
+      var ws2 = wb.addWorksheet("Resumo por Setor");
+      buildRegistroSheet(ws1, lastDataRow);
+      buildResumoSheet(ws2, lastDataRow);
+
+      var buffer = await wb.xlsx.writeBuffer();
+      var blob = new Blob([buffer], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      var filename = (state.nome ? state.nome.trim().replace(/[^a-zA-Z0-9]+/g,"-") : "mapa-processo") + ".xlsx";
+
+      var saved = false;
+      if(window.claude && window.claude.use){
+        try{
+          var downloads = await window.claude.use("downloads");
+          if(downloads){
+            await downloads.save({filename: filename, data: blob});
+            saved = true;
+          }
+        }catch(e){ /* cai no aviso abaixo */ }
+      }
+      if(statusEl){
+        if(saved){ statusEl.textContent = "Excel gerado — confirme o salvamento."; statusEl.className = "excel-status ok"; }
+        else { statusEl.textContent = "Não foi possível salvar automaticamente aqui. Tente novamente."; statusEl.className = "excel-status error"; }
+      }
+    }catch(err){
+      if(statusEl){ statusEl.textContent = "Erro ao gerar o Excel. Tente novamente."; statusEl.className = "excel-status error"; }
+    }
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+
+  loadState();
+  renderAll();
+})();
+</script>
+
+</body></html>
